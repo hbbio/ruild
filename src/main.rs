@@ -233,3 +233,119 @@ fn main() {
 
     std::process::exit(res);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn tmp_dir(prefix: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        p.push(format!("ruild_test_{}_{}_{}", prefix, std::process::id(), n));
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn write_file(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let mut f = File::create(path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn test_is_comment_variants() {
+        assert_eq!(is_comment("# hello").as_deref(), Some("hello"));
+        assert_eq!(is_comment("//  hi").as_deref(), Some("hi"));
+        assert_eq!(
+            is_comment("<!--  spaced content  -->").as_deref(),
+            Some("spaced content")
+        );
+        assert_eq!(is_comment("(* test *)").as_deref(), Some("test"));
+        assert!(is_comment("no comment here").is_none());
+    }
+
+    #[test]
+    fn test_detect_build_directive() {
+        assert_eq!(
+            detect("# @build echo hi"),
+            Some(("".to_string(), "echo hi".to_string()))
+        );
+        assert_eq!(
+            detect("// @build-tex xelatex %md"),
+            Some(("tex".to_string(), "xelatex %md".to_string()))
+        );
+        assert!(detect("# not a build line").is_none());
+    }
+
+    #[test]
+    fn test_expand_template() {
+        let tpl = "env TEXINPUTS=../template: pandoc -N --pdf-engine xelatex  --template=../template/whitepaper.latex -o ../build/%pdf %md";
+        let out = expand_template(tpl, "doc.");
+        assert_eq!(
+            out,
+            "env TEXINPUTS=../template: pandoc -N --pdf-engine xelatex  --template=../template/whitepaper.latex -o ../build/\"pdf\" \"md\""
+        );
+        let out2 = expand_template("echo %a % %b", "base.");
+        assert_eq!(out2, "echo \"a\" base. \"b\"");
+    }
+
+    #[test]
+    fn test_base_and_ext() {
+        let (b, e) = base_and_ext(Path::new("name.md"));
+        assert_eq!(b, "name.");
+        assert_eq!(e, "md");
+        let (b2, e2) = base_and_ext(Path::new("name"));
+        assert_eq!(b2, "name");
+        assert_eq!(e2, "");
+    }
+
+    #[test]
+    fn test_run_command_current_dir() {
+        let d = tmp_dir("run_command");
+        let marker = d.join("marker.txt");
+        assert!(!marker.exists());
+        // Command writes to a file in the working directory; ensure it lands in `d`.
+        let ok = run_command("echo hi > marker.txt", "base.", &d);
+        assert!(ok);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn test_build_file_inline_executes_in_file_dir() {
+        let d = tmp_dir("inline");
+        let file = d.join("doc.md");
+        write_file(&file, "<!-- @build echo ok > inside -->\ncontent\n");
+        let ok = build_file(None, &file);
+        assert!(ok);
+        assert!(d.join("inside").exists());
+    }
+
+    #[test]
+    fn test_defaults_used_and_run_in_file_dir() {
+        let home = tmp_dir("home");
+        let conf = home.join(".config").join("build.defaults");
+        write_file(&conf, "md : echo default > from_defaults\n");
+
+        // Set HOME so read_defaults finds our file
+        let old_home = env::var_os("HOME");
+        unsafe { env::set_var("HOME", &home); }
+
+        let d = tmp_dir("defaults");
+        let file = d.join("doc.md");
+        write_file(&file, "no directives here\n");
+        let ok = build_file(None, &file);
+        assert!(ok);
+        assert!(d.join("from_defaults").exists());
+
+        // restore HOME
+        if let Some(v) = old_home { unsafe { env::set_var("HOME", v); } } else { unsafe { env::remove_var("HOME"); } }
+    }
+}
