@@ -41,17 +41,19 @@ fn detect(line: &str) -> Option<(String, String)> {
     Some((ty, cmd))
 }
 
-/// Expand template placeholders the same way as the Lua original:
-/// - %<alnum> -> "<alnum>" (quoted)
-/// - remaining % -> base (the file stem plus a '.' if the file had an extension)
+/// Expand template placeholders like the original script:
+/// - %<alnum> -> base + <alnum>, quoted (e.g., base="doc.", %pdf -> "doc.pdf")
+/// - remaining lone '%' -> base (no extra quoting)
 fn expand_template(template: &str, base: &str) -> String {
-    // %<alnum> -> "<alnum>"
-    let t = Regex::new(r#"%([A-Za-z0-9]+)"#)
-        .unwrap()
-        .replace_all(template, r#""$1""#)
+    // First, expand %<token> to "{base}{token}"
+    let re_tokens = Regex::new(r#"%([A-Za-z0-9]+)"#).unwrap();
+    let t = re_tokens
+        .replace_all(template, |caps: &regex::Captures| {
+            format!("\"{}{}\"", base, &caps[1])
+        })
         .to_string();
 
-    // remaining lone '%' -> base
+    // Then replace remaining single '%' with the base as-is
     Regex::new(r#"%"#).unwrap().replace_all(&t, base).to_string()
 }
 
@@ -291,10 +293,10 @@ mod tests {
         let out = expand_template(tpl, "doc.");
         assert_eq!(
             out,
-            "env TEXINPUTS=../template: pandoc -N --pdf-engine xelatex  --template=../template/whitepaper.latex -o ../build/\"pdf\" \"md\""
+            "env TEXINPUTS=../template: pandoc -N --pdf-engine xelatex  --template=../template/whitepaper.latex -o ../build/\"doc.pdf\" \"doc.md\""
         );
         let out2 = expand_template("echo %a % %b", "base.");
-        assert_eq!(out2, "echo \"a\" base. \"b\"");
+        assert_eq!(out2, "echo \"base.a\" base. \"base.b\"");
     }
 
     #[test]
