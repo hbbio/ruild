@@ -207,6 +207,24 @@ fn config_path() -> Option<PathBuf> {
     Some(home.join(".config").join("build.defaults"))
 }
 
+fn short_help() -> String {
+    let msg = [
+        "ruild — build single files from @build comments",
+        "",
+        "Usage:",
+        "  ruild [-type] <file> [<file> ...]",
+        "",
+        "Notes:",
+        "  - Reads @build or @build-{type} from file comments",
+        "  - %<token> -> \"<base><token>\", % -> <base>",
+        "  - If no inline command, uses ~/.config/build.defaults",
+        "  - Relative paths resolve from the file’s directory",
+        "",
+        "See README.md for examples.",
+    ];
+    msg.join("\n")
+}
+
 fn main() {
     // Mirrors Lua semantics:
     //   - Each "-<type>" flag sets the current build type for subsequent files
@@ -216,6 +234,11 @@ fn main() {
     // Skip argv[0]
     if !args.is_empty() {
         args.remove(0);
+    }
+
+    if args.is_empty() {
+        println!("{}", short_help());
+        std::process::exit(0);
     }
 
     let mut res: i32 = 0;
@@ -349,5 +372,12 @@ mod tests {
 
         // restore HOME
         if let Some(v) = old_home { unsafe { env::set_var("HOME", v); } } else { unsafe { env::remove_var("HOME"); } }
+    }
+
+    #[test]
+    fn test_short_help_contains_usage() {
+        let h = short_help();
+        assert!(h.contains("Usage:"));
+        assert!(h.contains("ruild [-type] <file>"));
     }
 }
