@@ -98,7 +98,7 @@ fn read_defaults(ext: &str) -> Option<String> {
 
 /// Build command runner: expands placeholders then executes via the platform shell.
 /// Mirrors `os.execute` behavior by invoking sh -c / cmd /C.
-fn run_command(build_tpl: &str, base: &str) -> bool {
+fn run_command(build_tpl: &str, base: &str, workdir: &Path) -> bool {
     let cmdline = expand_template(build_tpl, base);
     println!("Running: {}", cmdline);
 
@@ -106,6 +106,7 @@ fn run_command(build_tpl: &str, base: &str) -> bool {
         Command::new("cmd")
             .arg("/C")
             .arg(cmdline)
+            .current_dir(workdir)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -114,6 +115,7 @@ fn run_command(build_tpl: &str, base: &str) -> bool {
         Command::new("sh")
             .arg("-c")
             .arg(cmdline)
+            .current_dir(workdir)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -160,6 +162,12 @@ fn build_file(type_expected: Option<&str>, filename: &Path) -> bool {
 
     let (base, ext) = base_and_ext(filename);
 
+    // Ensure relative paths in build commands resolve from the file's directory
+    let workdir = match std::fs::canonicalize(filename) {
+        Ok(abs) => abs.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")),
+        Err(_) => filename.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")),
+    };
+
     // Scan the whole file (the Lua had a TODO to limit to 100 lines; we keep the original behavior)
     for line in BufReader::new(fh).lines().flatten() {
         if let Some((ty, build_tpl)) = detect(&line) {
@@ -168,14 +176,14 @@ fn build_file(type_expected: Option<&str>, filename: &Path) -> bool {
                 Some(want) => !ty.is_empty() && ty == want,
             };
             if ok_type && !build_tpl.is_empty() {
-                return run_command(&build_tpl, &base);
+                return run_command(&build_tpl, &base, &workdir);
             }
         }
     }
 
     // Try defaults if nothing was found inline
     if let Some(default_tpl) = read_defaults(&ext) {
-        return run_command(&default_tpl, &base);
+        return run_command(&default_tpl, &base, &workdir);
     }
 
     false
