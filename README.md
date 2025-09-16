@@ -11,6 +11,7 @@ Run `ruild` against one or more files. It reads `@build` directives from comment
 ```sh
 ruild [-type] <file> [<file> ...]
 ruild --config_file
+ruild --dump_defaults
 ```
 
 Notes:
@@ -24,6 +25,7 @@ Options:
 
 - `--config_file` prints the location of the `build.defaults` file and exits. If the file
   does not exist yet, it is created (bootstrapped) in the appropriate OS-specific location.
+- `--dump_defaults` prints the built-in defaults for your platform and exits.
 
 ## example
 

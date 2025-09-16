@@ -80,7 +80,6 @@ php:       php %php
 lua:       lua %lua
 
 # ── Linters / Formatters ────────────────────────────────────────────────────
-prettier:  prettier -w %
 eslint:    eslint --fix %js
 ruff:      ruff check --fix %py
 black:     black %py
@@ -109,11 +108,11 @@ movmp4:    ffmpeg -y -i %mov -vcodec h264 -acodec aac %mp4
 mp4gif:    ffmpeg -y -i %mp4 -vf fps=12,scale=640:-2:flags=lanczos %gif
 gifmp4:    ffmpeg -y -i %gif -movflags faststart -pix_fmt yuv420p %mp4
 
-# ── Archives ────────────────────────────────────────────────────────────────
-zip:       powershell -NoProfile -Command Compress-Archive -Path % -DestinationPath %zip -Force
-tar:       tar.exe -cvf %tar %
-tgz:       tar.exe -czvf %tgz %
-7z:        7z a %7z %
+# ── Archives (examples use explicit inputs; avoid bare %):
+# zip:      powershell -NoProfile -Command Compress-Archive -Path "src","README.md" -DestinationPath %zip -Force
+# tar:      tar.exe -cvf %tar src README.md
+# tgz:      tar.exe -czvf %tgz src README.md
+# 7z:       7z a %7z src README.md
 
 # ── Containers / Cloud ─────────────────────────────────────────────────────-
 dockerfile: docker build -f %dockerfile .

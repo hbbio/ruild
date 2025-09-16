@@ -273,9 +273,11 @@ fn short_help() -> String {
         "Usage:",
         "  ruild [-type] <file> [<file> ...]",
         "  ruild --config_file",
+        "  ruild --dump_defaults",
         "",
         "Options:",
         "  --config_file   Print the config file location and exit",
+        "  --dump_defaults Print bundled defaults for this platform and exit",
         "",
         "Notes:",
         "  - Reads @build or @build-{type} from file comments",
@@ -322,6 +324,10 @@ fn main() {
                 }
                 None => println!("<no-default-path>"),
             }
+            std::process::exit(0);
+        }
+        if s == "--dump_defaults" {
+            print!("{}", BUNDLED_DEFAULTS);
             std::process::exit(0);
         }
     }
@@ -469,6 +475,27 @@ mod tests {
         assert!(h.contains("Usage:"));
         assert!(h.contains("ruild [-type] <file>"));
         assert!(h.contains("--config_file"));
+        assert!(h.contains("--dump_defaults"));
+    }
+
+    #[test]
+    fn test_dump_defaults_contains_md_rule() {
+        // Ensure bundled defaults have at least a markdown rule
+        assert!(BUNDLED_DEFAULTS.contains("md:"));
+    }
+
+    #[test]
+    fn test_defaults_do_not_use_bare_percent_token() {
+        // Ensure no active (non-comment) line uses a standalone % token,
+        // which would expand to a trailing dot base path.
+        for (i, line) in BUNDLED_DEFAULTS.lines().enumerate() {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with('#') { continue; }
+            // Look for a bare % either surrounded by spaces or at ends.
+            // Accept %<token> usages.
+            let bad = t == "%" || t.contains(" % ") || t.ends_with(" %") || t.starts_with("% ");
+            assert!(!bad, "defaults contain bare % token on line {}: {}", i+1, line);
+        }
     }
 
     #[test]

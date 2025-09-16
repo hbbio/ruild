@@ -110,7 +110,6 @@ php:       php %php
 lua:       lua %lua
 
 # ── Linters / Formatters ────────────────────────────────────────────────────
-prettier:  prettier -w %
 eslint:    eslint --fix %js
 ruff:      ruff check --fix %py
 black:     black %py
@@ -145,16 +144,16 @@ gifmp4:    ffmpeg -y -i %gif -movflags faststart -pix_fmt yuv420p %mp4
 mp4h264aac: ffmpeg -y -i %mov -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 192k -movflags +faststart %mp4
 webmp4:    ffmpeg -y -i %mp4 -c:v libx264 -preset slow -crf 24 -c:a aac -b:a 160k -movflags +faststart %mp4
 
-# ── Archives ────────────────────────────────────────────────────────────────
-tar:       tar -cvf %tar %
-tgz:       tar -czvf %tgz %
-zip:       zip -r %zip %
-7z:        7z a %7z %
+# ── Archives (examples use explicit inputs; avoid bare %):
+# tar:      tar -cvf %tar "src" "README.md"
+# tgz:      tar -czvf %tgz "src" "README.md"
+# zip:      zip -r %zip "src" "README.md"
+# 7z:       7z a %7z "src" "README.md"
 
-# ── Security / checksums ────────────────────────────────────────────────────
-sha256:    shasum -a 256 % > %txt
-gpgsign:   gpg --output %sig --detach-sign %
-gpgverify: gpg --verify %sig %
+# ── Security / checksums (examples with explicit file names):
+# sha256:   shasum -a 256 "README.md" > %txt
+# gpgsign:  gpg --output %sig --detach-sign "README.md"
+# gpgverify:gpg --verify %sig "README.md"
 
 # ── Containers / Cloud ─────────────────────────────────────────────────────-
 dockerfile: docker build -f %dockerfile .
