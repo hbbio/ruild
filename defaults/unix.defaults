@@ -140,6 +140,14 @@ compose:   docker compose up -d
 tfplan:    terraform plan
 tffmt:     terraform fmt -recursive
 
+# ── Project-aware helpers (trigger via file):
+# Note: These run best when invoked on their project config files.
+#   book.toml   -> mdbook build        (handled automatically by ruild)
+#   mkdocs.yml  -> mkdocs build        (handled automatically by ruild)
+#   conf.py     -> sphinx-build ...    (handled automatically by ruild)
+#   Doxyfile    -> doxygen Doxyfile    (handled automatically by ruild)
+proto:     protoc -I . --python_out=. %proto
+
 # ── Misc utilities ─────────────────────────────────────────────────────────
 dotenv:    env -i sh -c 'set -a && . %env && env > %txt'
 make:      make

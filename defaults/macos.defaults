@@ -1,4 +1,4 @@
-# ruild default build recipes (Windows)
+# ruild default build recipes (macOS)
 # Edit this file to suit your tools and workflow.
 # Placeholders:
 #   %<ext> -> "<base><ext>" (e.g. %pdf -> "doc.pdf")
@@ -16,10 +16,16 @@ mdman:     pandoc -s -t man -o %man %md
 rst:       pandoc -N -o %pdf %rst
 adoc:      asciidoctor -o %html %adoc
 adocpdf:   asciidoctor-pdf -o %pdf %adoc
-tex:       pdflatex %tex
+tex:       latexmk -pdf -interaction=nonstopmode %tex
+texbib:    latexmk -pdf -bibtex -interaction=nonstopmode %tex
 texxelatex: xelatex %tex
 htmldoc:   wkhtmltopdf %html %pdf
 txt:       pandoc -o %pdf %txt
+
+# macOS-only document helpers
+docxpdf:   textutil -convert pdf -output %pdf %docx
+rtfpdf:    textutil -convert pdf -output %pdf %rtf
+docpdf:    textutil -convert pdf -output %pdf %doc
 
 # ── Jupyter / notebooks ──────────────────────────────────────────────────────
 ipynbhtml: jupyter nbconvert --to html %ipynb
@@ -30,36 +36,61 @@ ipynbmd:   jupyter nbconvert --to markdown --output %md %ipynb
 dot:       dot -Tpng -o %png %dot
 dotpdf:    dot -Tpdf -o %pdf %dot
 dotsvg:    dot -Tsvg -o %svg %dot
+neato:     neato -Tpng -o %png %neato
+fdp:       fdp -Tpng -o %png %dot
+sfdp:      sfdp -Tpng -o %png %dot
+circo:     circo -Tpng -o %png %dot
+twopi:     twopi -Tpng -o %png %dot
+drawio:    drawio -x -f png -o %png %drawio
+drawiosvg: drawio -x -f svg -o %svg %drawio
 puml:      plantuml -tpng -o . %puml
 pumlsvg:   plantuml -tsvg -o . %puml
 pumlpdf:   plantuml -tpdf -o . %puml
 mmd:       mmdc -i %mmd -o %png
 mmdsvg:    mmdc -i %mmd -o %svg
 msc:       mscgen -T png -o %png %msc
-drawio:    drawio -x -f png -o %png %drawio
-drawiosvg: drawio -x -f svg -o %svg %drawio
-svgtopng:  inkscape %svg --export-type=png --export-filename=%png
-svgtopdf:  inkscape %svg --export-type=pdf --export-filename=%pdf
+graphviz:  dot -Tpng -o %png %graphviz
+d2png:     d2 %d2 %png
+d2svg:     d2 --theme 200 %d2 %svg
+
+# macOS-only quicklook thumbnails
+svgthumb:  qlmanage -t -s 1000 -o %png %svg
+pdfthumb:  qlmanage -t -s 1000 -o %png %pdf
+
+# macOS-only metadata (mdls)
+jpgmeta:   mdls %jpg > %txt
+pngmeta:   mdls %png > %txt
+heicmeta:  mdls %heic > %txt
+tiffmeta:  mdls %tiff > %txt
+pdfmeta:   mdls %pdf > %txt
+movmeta:   mdls %mov > %txt
+mp4meta:   mdls %mp4 > %txt
+jpgmetaj:  sh -c 'mdls -plist %jpg | plutil -convert json -o %json -'
+pngmetaj:  sh -c 'mdls -plist %png | plutil -convert json -o %json -'
+pdfmetaj:  sh -c 'mdls -plist %pdf | plutil -convert json -o %json -'
+movmetaj:  sh -c 'mdls -plist %mov | plutil -convert json -o %json -'
+mp4metaj:  sh -c 'mdls -plist %mp4 | plutil -convert json -o %json -'
 
 # ── Plots ───────────────────────────────────────────────────────────────────
-gnuplot:   gnuplot -e "set terminal pngcairo size 1600,900; set output '%png';" %gnuplot
-plt:       gnuplot -e "set terminal pngcairo size 1600,900; set output '%png';" %plt
+gnuplot:   gnuplot -e 'set terminal pngcairo size 1600,900; set output "%png";' %gnuplot
+plt:       gnuplot -e 'set terminal pngcairo size 1600,900; set output "%png";' %plt
 
 # ── Programming — compile/build/run common languages ────────────────────────
-c:         gcc -Wall %c -o %out.exe
-cc:        gcc -Wall %c -o %out.exe
-cpp:       g++ -Wall %cpp -o %out.exe
-cxx:       g++ -Wall %cxx -o %out.exe
-rs:        rustc -O %rs -o %out.exe
-rsrun:     rustc %rs -o %out.exe && %out.exe
+c:         clang -Wall %c -o %out
+cc:        clang -Wall %c -o %out
+cpp:       clang++ -Wall %cpp -o %out
+cxx:       clang++ -Wall %cxx -o %out
+rs:        rustc -O %rs -o %out
+rsrun:     rustc %rs -o %out && ./%out
 cargo:     cargo build
 cargotest: cargo test
-go:        go build -o %out.exe %go
+go:        go build -o %out %go
 gotest:    go test ./...
-hs:        ghc -O2 %hs -o %out.exe
-ml:        ocamlopt str.cmxa unix.cmxa %ml -o %out.exe
-nim:       nim c -d:release -o:%out.exe %nim
-swift:     swiftc %swift -o %out.exe
+hs:        ghc -O2 %hs -o %out
+ml:        ocamlopt str.cmxa unix.cmxa %ml -o %out
+zig:       zig build-exe %zig -O ReleaseFast -fstrip -o %out
+nim:       nim c -d:release -o:%out %nim
+swift:     swiftc %swift -o %out
 kt:        kotlinc %kt -include-runtime -d %out.jar
 java:      javac %java
 jar:       jar cfe %jar Main %class
@@ -69,11 +100,10 @@ tsc:       tsc %ts --outFile %js
 esbuild:   esbuild %js --bundle --minify --outfile=%min.js
 rollup:    rollup %js -c --file %min.js
 uglify:    terser %js -o %min.js -mc
-js:        node %js
-py:        py %py
+node:      node %js
+py:        python3 %py
 pytest:    pytest -q
-ps1:       powershell -ExecutionPolicy Bypass -File %ps1
-bat:       cmd /c %bat
+sh:        bash %sh
 rb:        ruby %rb
 pl:        perl %pl
 php:       php %php
@@ -89,6 +119,9 @@ mypy:      mypy %py
 shellcheck: shellcheck %sh > %txt
 
 # ── Data conversion ─────────────────────────────────────────────────────────
+csvstats:  xsv stats %csv > %txt
+csvsample: xsv sample 100 %csv > %txt
+csvcut:    xsv select 1,2,3 %csv > %txt
 jsonpretty: jq . %json > %txt
 jsonmin:   jq -c . %json > %min.json
 yamljson:  yq -o=json %yaml > %json
@@ -96,6 +129,7 @@ ymljson:   yq -o=json %yml > %json
 jsontoyaml: yq -P %json > %yaml
 tomljson:  yq -p=toml -o=json %toml > %json
 jsontoml:  yq -p=json -o=toml %json > %toml
+sqlitecsv: sqlite3 %sqlite '.headers on' '.mode csv' '.once %csv' 'select * from main;'
 
 # ── Images and media ────────────────────────────────────────────────────────
 pngjpg:    magick %png %jpg
@@ -108,21 +142,39 @@ mp3wav:    ffmpeg -y -i %mp3 %wav
 movmp4:    ffmpeg -y -i %mov -vcodec h264 -acodec aac %mp4
 mp4gif:    ffmpeg -y -i %mp4 -vf fps=12,scale=640:-2:flags=lanczos %gif
 gifmp4:    ffmpeg -y -i %gif -movflags faststart -pix_fmt yuv420p %mp4
+mp4h264aac: ffmpeg -y -i %mov -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 192k -movflags +faststart %mp4
+webmp4:    ffmpeg -y -i %mp4 -c:v libx264 -preset slow -crf 24 -c:a aac -b:a 160k -movflags +faststart %mp4
 
 # ── Archives ────────────────────────────────────────────────────────────────
-zip:       powershell -NoProfile -Command Compress-Archive -Path % -DestinationPath %zip -Force
-tar:       tar.exe -cvf %tar %
-tgz:       tar.exe -czvf %tgz %
+tar:       tar -cvf %tar %
+tgz:       tar -czvf %tgz %
+zip:       zip -r %zip %
 7z:        7z a %7z %
+
+# ── Security / checksums ────────────────────────────────────────────────────
+sha256:    shasum -a 256 % > %txt
+gpgsign:   gpg --output %sig --detach-sign %
+gpgverify: gpg --verify %sig %
 
 # ── Containers / Cloud ─────────────────────────────────────────────────────-
 dockerfile: docker build -f %dockerfile .
 compose:   docker compose up -d
-tfplan:    terraform.exe plan
-tffmt:     terraform.exe fmt -recursive
+tfplan:    terraform plan
+tffmt:     terraform fmt -recursive
+
+# ── Misc utilities ─────────────────────────────────────────────────────────
+dotenv:    env -i sh -c 'set -a && . %env && env > %txt'
+make:      make
+
+# macOS-only image conversions/resizing (sips)
+png2jpg:   sips -s format jpeg %png --out %jpg
+heic2jpg:  sips -s format jpeg %heic --out %jpg
+tiff2jpg:  sips -s format jpeg %tiff --out %jpg
+jpgmax1024: sips -Z 1024 %jpg --out %jpg
+pngmax1024: sips -Z 1024 %png --out %png
+pngthumbjpg: sips -Z 320 %png --out %jpg
 
 # ── Project-aware helpers (trigger via file):
-# Note: These run best when invoked on their project config files.
 #   book.toml   -> mdbook build        (handled automatically by ruild)
 #   mkdocs.yml  -> mkdocs build        (handled automatically by ruild)
 #   conf.py     -> sphinx-build ...    (handled automatically by ruild)

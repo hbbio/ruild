@@ -9,10 +9,12 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[cfg(target_os = "macos")]
+const BUNDLED_DEFAULTS: &str = include_str!("../defaults/macos.defaults");
+#[cfg(all(unix, not(target_os = "macos")))]
+const BUNDLED_DEFAULTS: &str = include_str!("../defaults/unix.defaults");
 #[cfg(windows)]
 const BUNDLED_DEFAULTS: &str = include_str!("../defaults/windows.defaults");
-#[cfg(not(windows))]
-const BUNDLED_DEFAULTS: &str = include_str!("../defaults/unix.defaults");
 
 fn is_comment(line: &str) -> Option<String> {
     let s = line.trim();
@@ -160,6 +162,25 @@ fn base_and_ext(filename: &Path) -> (String, String) {
     (base, ext)
 }
 
+fn project_command_for_file(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    if name == "book.toml" {
+        return Some("mdbook build".to_string());
+    }
+    if name == "mkdocs.yml" || name == "mkdocs.yaml" {
+        return Some("mkdocs build".to_string());
+    }
+    if name == "conf.py" {
+        return Some("sphinx-build -b html . _build/html".to_string());
+    }
+    if name.starts_with("doxyfile") {
+        // Use the actual file name in case it's like Doxyfile.dev
+        let fname = path.file_name()?.to_string_lossy().to_string();
+        return Some(format!("doxygen {}", fname));
+    }
+    None
+}
+
 fn build_file(type_expected: Option<&str>, filename: &Path) -> bool {
     let fh = match File::open(filename) {
         Ok(f) => f,
@@ -190,7 +211,12 @@ fn build_file(type_expected: Option<&str>, filename: &Path) -> bool {
         }
     }
 
-    // Try defaults if nothing was found inline
+    // Project-aware fallbacks for common tool configs
+    if let Some(pc) = project_command_for_file(filename) {
+        return run_command(&pc, &base, &workdir);
+    }
+
+    // Try defaults if nothing was found inline or via project detection
     if let Some(default_tpl) = read_defaults(&ext) {
         return run_command(&default_tpl, &base, &workdir);
     }
@@ -462,5 +488,33 @@ mod tests {
 
         // restore
         if let Some(v) = old_xdg { unsafe { env::set_var("XDG_CONFIG_HOME", v); } } else { unsafe { env::remove_var("XDG_CONFIG_HOME"); } }
+    }
+
+    #[test]
+    fn test_project_command_for_file_detection() {
+        assert_eq!(
+            project_command_for_file(Path::new("book.toml")).as_deref(),
+            Some("mdbook build")
+        );
+        assert_eq!(
+            project_command_for_file(Path::new("mkdocs.yml")).as_deref(),
+            Some("mkdocs build")
+        );
+        assert_eq!(
+            project_command_for_file(Path::new("mkdocs.yaml")).as_deref(),
+            Some("mkdocs build")
+        );
+        assert_eq!(
+            project_command_for_file(Path::new("conf.py")).as_deref(),
+            Some("sphinx-build -b html . _build/html")
+        );
+        assert_eq!(
+            project_command_for_file(Path::new("Doxyfile")).as_deref(),
+            Some("doxygen Doxyfile")
+        );
+        assert_eq!(
+            project_command_for_file(Path::new("Doxyfile.dev")).as_deref(),
+            Some("doxygen Doxyfile.dev")
+        );
     }
 }
