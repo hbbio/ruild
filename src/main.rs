@@ -9,6 +9,11 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[cfg(windows)]
+const BUNDLED_DEFAULTS: &str = include_str!("../defaults/windows.defaults");
+#[cfg(not(windows))]
+const BUNDLED_DEFAULTS: &str = include_str!("../defaults/unix.defaults");
+
 fn is_comment(line: &str) -> Option<String> {
     let s = line.trim();
 
@@ -230,19 +235,8 @@ fn ensure_bootstrap_defaults(path: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let mut f = File::create(path)?;
-    let content = r#"# ruild default build recipes
-c: gcc -Wall %c -o %out
-cc: gcc -Wall %c -o %out
-md: pandoc -N -o %pdf %md
-rst: pandoc -N -o %pdf %rst
-ml: ocamlopt str.cmxa unix.cmxa %ml -o %out
-msc: mscgen -T png -o %png %msc
-svg: qlmanage -t -s 1000 -o %png %svg
-tex: pdflatex %tex
-txt: pandoc -o %pdf %txt
-"#;
     use std::io::Write;
-    f.write_all(content.as_bytes())?;
+    f.write_all(BUNDLED_DEFAULTS.as_bytes())?;
     Ok(())
 }
 

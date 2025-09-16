@@ -1,0 +1,83 @@
+# ruild default build recipes (Unix/macOS/Linux)
+# Edit this file to suit your tools and workflow.
+
+# Documents (Pandoc, Asciidoctor, TeX)
+md: pandoc -N -o %pdf %md
+mdhtml: pandoc -s -o %html %md
+mddocx: pandoc -o %docx %md
+mdreveal: pandoc -t revealjs -s -o %html %md
+mdbeamer: pandoc -t beamer -o %pdf %md
+rst: pandoc -N -o %pdf %rst
+adoc: asciidoctor -o %html %adoc
+adocpdf: asciidoctor-pdf -o %pdf %adoc
+tex: latexmk -pdf -interaction=nonstopmode %tex
+texxelatex: xelatex %tex
+txt: pandoc -o %pdf %txt
+
+# Graphs and Diagrams
+dot: dot -Tpng -o %png %dot
+dotpdf: dot -Tpdf -o %pdf %dot
+dotsvg: dot -Tsvg -o %svg %dot
+neato: neato -Tpng -o %png %neato
+puml: plantuml -tpng -o . %puml
+pumlsvg: plantuml -tsvg -o . %puml
+mmd: mmdc -i %mmd -o %png
+mmdsvg: mmdc -i %mmd -o %svg
+msc: mscgen -T png -o %png %msc
+graphviz: dot -Tpng -o %png %graphviz
+svgpng: inkscape %svg -o %png
+svgpdf: inkscape %svg -o %pdf
+svgraster: rsvg-convert -o %png %svg
+
+# Plots
+gnuplot: gnuplot -e 'set terminal pngcairo size 1600,900; set output "%png";' %gnuplot
+plt: gnuplot -e 'set terminal pngcairo size 1600,900; set output "%png";' %plt
+
+# Programming — compile/build/run common languages
+c: gcc -Wall %c -o %out
+cc: gcc -Wall %c -o %out
+cpp: g++ -Wall %cpp -o %out
+cxx: g++ -Wall %cxx -o %out
+rs: rustc -O %rs -o %out
+go: go build -o %out %go
+hs: ghc -O2 %hs -o %out
+ml: ocamlopt str.cmxa unix.cmxa %ml -o %out
+zig: zig build-exe %zig -O ReleaseFast -fstrip -o %out
+nim: nim c -d:release -o:%out %nim
+swift: swiftc %swift -o %out
+kt: kotlinc %kt -include-runtime -d %out.jar
+java: javac %java
+scala: scalac %scala
+ts: deno bundle %ts %js
+js: node %js
+py: python3 %py
+sh: bash %sh
+rb: ruby %rb
+pl: perl %pl
+php: php %php
+lua: lua %lua
+
+# Data conversion
+csvstats: xsv stats %csv > %txt
+jsonpretty: jq . %json > %txt
+yamljson: yq -o=json %yaml > %json
+
+# Images and media
+pngjpg: magick %png %jpg
+jpgwebp: cwebp -q 90 %jpg -o %webp
+webpjpg: dwebp %webp -o %jpg
+wavmp3: ffmpeg -y -i %wav %mp3
+mp3wav: ffmpeg -y -i %mp3 %wav
+movmp4: ffmpeg -y -i %mov -vcodec h264 -acodec aac %mp4
+mp4gif: ffmpeg -y -i %mp4 -vf fps=12,scale=640:-2:flags=lanczos %gif
+
+# Archives
+tar: tar -cvf %tar %
+tgz: tar -czvf %tgz %
+zip: zip -r %zip %
+
+# Misc utilities
+dotenv: env -i sh -c 'set -a && . %env && env > %txt'
+make: make
+shellcheck: shellcheck %sh > %txt
+
