@@ -72,19 +72,79 @@ Config file location:
 - Unix/macOS: `${XDG_CONFIG_HOME}/build.defaults` or `~/.config/build.defaults`
 - Windows: `%APPDATA%\build.defaults` (falls back to `~/.config/build.defaults`)
 
-On first run, if the file is missing, `ruild` creates it with these starter recipes (feel free to edit):
+Bundled templates are OS-specific and reasonably feature-rich. To see them:
+
+```sh
+ruild --dump_defaults
+```
+
+On first run, if the file is missing, `ruild` creates it from the bundled template for your platform. You can freely edit that file.
+
+### config syntax
+
+Two kinds of rules are supported:
+
+1) Extension rules (classic)
 
 ```
-c: gcc -Wall %c -o %out
-cc: gcc -Wall %c -o %out
-md: pandoc -N -o %pdf %md
-rst: pandoc -N -o %pdf %rst
-ml: ocamlopt str.cmxa unix.cmxa %ml -o %out
-msc: mscgen -T png -o %png %msc
-svg: qlmanage -t -s 1000 -o %png %svg
-tex: pdflatex %tex
-txt: pandoc -o %pdf %txt
+<ext> : <command>
 ```
+
+Example:
+
+```
+md: pandoc -N -o %pdf %md
+```
+
+2) Project-aware file rules
+
+```
+file:<pattern> [-<type>] : <command>
+```
+
+- `<pattern>` matches the file name (case-insensitive); a trailing `*` means “starts with”.
+- `-<type>` is optional and corresponds to the `-type` you pass on the CLI.
+
+Examples:
+
+```
+# Static site/book toolchains
+file:book.toml: mdbook build
+file:mkdocs.yml: mkdocs build
+file:conf.py:   sphinx-build -b html . _build/html
+file:Doxyfile*: doxygen {{file}}
+
+# Docker Compose helpers
+file:docker-compose.yml:          docker compose up -d
+file:docker-compose.yml -down:    docker compose down
+file:compose.yaml -build:         docker compose build
+file:compose.yaml -logs:          docker compose logs -f
+
+# package.json helpers (auto-detect npm|yarn|pnpm|bun)
+file:package.json:           {{pm}} run build
+file:package.json -start:    {{pm_start}}
+file:package.json -test:     {{pm_test}}
+file:package.json -install:  {{pm_install}}
+file:package.json -lint:     {{pm}} run lint
+file:package.json -dev:      {{pm}} run dev
+```
+
+### variables in rules
+
+In addition to `%` placeholders, file rules support variable expansion:
+
+- `{{file}}` → quoted file name (no path), e.g., "Doxyfile.dev"
+- `{{file_stem}}` → quoted stem, e.g., "Doxyfile"
+- `{{dir}}` → quoted directory of the file
+- `{{pm}}` → selected package manager: npm, yarn, pnpm, or bun
+- `{{pm_start}}` → npm start / yarn start / pnpm start / bun run start
+- `{{pm_test}}` → npm test / yarn test / pnpm test / bun run test
+- `{{pm_install}}` → npm install / yarn install / pnpm install / bun install
+- `{{type}}` → normalized CLI type when you pass `-type`
+
+Expansion order: `%` placeholders are expanded first, then `{{variables}}`.
+
+Tip: avoid using a bare `%` token in your recipes (it expands to `<base>`, which can end in a dot like `doc.`); prefer explicit `%<token>` or quoted arguments.
 
 ## installation
 
@@ -98,3 +158,4 @@ install target/release/ruild SOMEWHERE_IN_PATH
 ## author
 
 `ruild` is written by Henri Binsztok and licensed under the MIT license.
+
