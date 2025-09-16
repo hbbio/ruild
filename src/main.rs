@@ -61,24 +61,26 @@ fn expand_template(template: &str, base: &str) -> String {
 ///   <ext> : <command>
 /// Returns the command for the given extension if found.
 fn read_defaults(ext: &str) -> Option<String> {
-    let path = config_path();
-    let path_str = path
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "~/.config/build.defaults".to_string());
+    let p = config_path()?;
 
-    let p = match path {
-        Some(p) => p,
-        None => {
-            println!("no default settings found at {}", path_str);
+    // Ensure a defaults file exists; if not, bootstrap it.
+    if !p.exists() {
+        if let Err(e) = ensure_bootstrap_defaults(&p) {
+            eprintln!(
+                "could not create default settings at {}: {}",
+                p.display(),
+                e
+            );
             return None;
+        } else {
+            println!("created default settings at {}", p.display());
         }
-    };
+    }
 
     let fh = match File::open(&p) {
         Ok(f) => f,
-        Err(_) => {
-            println!("no default settings found at {}", path_str);
+        Err(e) => {
+            eprintln!("failed to open {}: {}", p.display(), e);
             return None;
         }
     };
@@ -201,10 +203,47 @@ fn check_build_file(type_expected: Option<&str>, filename: &Path) -> i32 {
 }
 
 fn config_path() -> Option<PathBuf> {
-    // Follow the Lua’s behavior: HOME + "/.config/build.defaults"
-    // No extra crates — minimal dependencies.
-    let home = env::var_os("HOME").map(PathBuf::from)?;
-    Some(home.join(".config").join("build.defaults"))
+    // Determine a suitable config file path per platform.
+    // Unix/macOS: $XDG_CONFIG_HOME/build.defaults or $HOME/.config/build.defaults
+    // Windows: %APPDATA%\build.defaults, falling back to $HOME/.config/build.defaults
+    #[cfg(windows)]
+    {
+        if let Some(appdata) = env::var_os("APPDATA").map(PathBuf::from) {
+            return Some(appdata.join("build.defaults"));
+        }
+        // fallback
+        let home = env::var_os("HOME").map(PathBuf::from)?;
+        return Some(home.join(".config").join("build.defaults"));
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(xdg) = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+            return Some(xdg.join("build.defaults"));
+        }
+        let home = env::var_os("HOME").map(PathBuf::from)?;
+        Some(home.join(".config").join("build.defaults"))
+    }
+}
+
+fn ensure_bootstrap_defaults(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut f = File::create(path)?;
+    let content = r#"# ruild default build recipes
+c: gcc -Wall %c -o %out
+cc: gcc -Wall %c -o %out
+md: pandoc -N -o %pdf %md
+rst: pandoc -N -o %pdf %rst
+ml: ocamlopt str.cmxa unix.cmxa %ml -o %out
+msc: mscgen -T png -o %png %msc
+svg: qlmanage -t -s 1000 -o %png %svg
+tex: pdflatex %tex
+txt: pandoc -o %pdf %txt
+"#;
+    use std::io::Write;
+    f.write_all(content.as_bytes())?;
+    Ok(())
 }
 
 fn short_help() -> String {
@@ -213,11 +252,16 @@ fn short_help() -> String {
         "",
         "Usage:",
         "  ruild [-type] <file> [<file> ...]",
+        "  ruild --config_file",
+        "",
+        "Options:",
+        "  --config_file   Print the config file location and exit",
         "",
         "Notes:",
         "  - Reads @build or @build-{type} from file comments",
         "  - %<token> -> \"<base><token>\", % -> <base>",
-        "  - If no inline command, uses ~/.config/build.defaults",
+        "  - If no inline command, uses $XDG_CONFIG_HOME/build.defaults",
+        "    or ~/.config/build.defaults (Unix/macOS), or %APPDATA%\\build.defaults (Windows)",
         "  - Relative paths resolve from the file’s directory",
         "",
         "See README.md for examples.",
@@ -241,12 +285,37 @@ fn main() {
         std::process::exit(0);
     }
 
+    // Handle long options first to avoid conflict with -{type}
+    // We only support `--config_file` for now.
+    for a in &args {
+        let s = a.to_string_lossy();
+        if s == "--config_file" {
+            match config_path() {
+                Some(p) => {
+                    if !p.exists() {
+                        if let Err(e) = ensure_bootstrap_defaults(&p) {
+                            eprintln!("failed to create {}: {}", p.display(), e);
+                            std::process::exit(1);
+                        }
+                    }
+                    println!("{}", p.display());
+                }
+                None => println!("<no-default-path>"),
+            }
+            std::process::exit(0);
+        }
+    }
+
     let mut res: i32 = 0;
     let mut ty: Option<String> = None;
 
     for a in args {
         let s = a.to_string_lossy();
-        if s.starts_with('-') && s.len() > 1 {
+        if s.starts_with("--") {
+            // Unknown long option; show help and exit with error
+            eprintln!("Unknown option: {}\n\n{}", s, short_help());
+            std::process::exit(2);
+        } else if s.starts_with('-') && s.len() > 1 {
             let t = s[1..].to_string();
             println!("setting build type: {}", t);
             ty = Some(t);
@@ -379,5 +448,25 @@ mod tests {
         let h = short_help();
         assert!(h.contains("Usage:"));
         assert!(h.contains("ruild [-type] <file>"));
+        assert!(h.contains("--config_file"));
+    }
+
+    #[test]
+    fn test_bootstrap_defaults_created_and_used() {
+        // Point XDG_CONFIG_HOME to a temp dir so we don't touch the real config
+        let cfgdir = tmp_dir("xdg");
+        let cfgfile = cfgdir.join("build.defaults");
+        if cfgfile.exists() { fs::remove_file(&cfgfile).unwrap(); }
+
+        let old_xdg = env::var_os("XDG_CONFIG_HOME");
+        unsafe { env::set_var("XDG_CONFIG_HOME", &cfgdir); }
+
+        // File does not exist initially; read_defaults should bootstrap it
+        let got = read_defaults("txt");
+        assert_eq!(got.as_deref(), Some("pandoc -o %pdf %txt"));
+        assert!(cfgfile.exists());
+
+        // restore
+        if let Some(v) = old_xdg { unsafe { env::set_var("XDG_CONFIG_HOME", v); } } else { unsafe { env::remove_var("XDG_CONFIG_HOME"); } }
     }
 }
