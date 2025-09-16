@@ -1,77 +1,123 @@
 # ruild default build recipes (Windows)
 # Edit this file to suit your tools and workflow.
+# Placeholders:
+#   %<ext> -> "<base><ext>" (e.g. %pdf -> "doc.pdf")
+#   %      -> <base>       (e.g. % -> doc.)
 
-# Documents (Pandoc, Asciidoctor, TeX)
-md: pandoc -N -o %pdf %md
-mdhtml: pandoc -s -o %html %md
-mddocx: pandoc -o %docx %md
-mdreveal: pandoc -t revealjs -s -o %html %md
-mdbeamer: pandoc -t beamer -o %pdf %md
-rst: pandoc -N -o %pdf %rst
-adoc: asciidoctor -o %html %adoc
-adocpdf: asciidoctor-pdf -o %pdf %adoc
-tex: pdflatex %tex
+# ── Documents (Pandoc, Asciidoctor, TeX) ─────────────────────────────────────
+md:        pandoc -N -o %pdf %md
+mdhtml:    pandoc -s -o %html %md
+mddocx:    pandoc -o %docx %md
+mdepub:    pandoc -o %epub %md
+mdodt:     pandoc -o %odt %md
+mdreveal:  pandoc -t revealjs -s -o %html %md
+mdbeamer:  pandoc -t beamer -o %pdf %md
+mdman:     pandoc -s -t man -o %man %md
+rst:       pandoc -N -o %pdf %rst
+adoc:      asciidoctor -o %html %adoc
+adocpdf:   asciidoctor-pdf -o %pdf %adoc
+tex:       pdflatex %tex
 texxelatex: xelatex %tex
-txt: pandoc -o %pdf %txt
+htmldoc:   wkhtmltopdf %html %pdf
+txt:       pandoc -o %pdf %txt
 
-# Graphs and Diagrams
-dot: dot -Tpng -o %png %dot
-dotpdf: dot -Tpdf -o %pdf %dot
-dotsvg: dot -Tsvg -o %svg %dot
-puml: plantuml -tpng -o . %puml
-pumlsvg: plantuml -tsvg -o . %puml
-mmd: mmdc -i %mmd -o %png
-mmdsvg: mmdc -i %mmd -o %svg
-msc: mscgen -T png -o %png %msc
-svgpng: inkscape %svg --export-type=png --export-filename=%png
-svgpdf: inkscape %svg --export-type=pdf --export-filename=%pdf
+# ── Jupyter / notebooks ──────────────────────────────────────────────────────
+ipynbhtml: jupyter nbconvert --to html %ipynb
+ipynbpdf:  jupyter nbconvert --to pdf %ipynb
+ipynbmd:   jupyter nbconvert --to markdown --output %md %ipynb
 
-# Plots
-gnuplot: gnuplot -e "set terminal pngcairo size 1600,900; set output '%png';" %gnuplot
-plt: gnuplot -e "set terminal pngcairo size 1600,900; set output '%png';" %plt
+# ── Graphs and Diagrams ─────────────────────────────────────────────────────
+dot:       dot -Tpng -o %png %dot
+dotpdf:    dot -Tpdf -o %pdf %dot
+dotsvg:    dot -Tsvg -o %svg %dot
+puml:      plantuml -tpng -o . %puml
+pumlsvg:   plantuml -tsvg -o . %puml
+pumlpdf:   plantuml -tpdf -o . %puml
+mmd:       mmdc -i %mmd -o %png
+mmdsvg:    mmdc -i %mmd -o %svg
+msc:       mscgen -T png -o %png %msc
+drawio:    drawio -x -f png -o %png %drawio
+drawiosvg: drawio -x -f svg -o %svg %drawio
+svgtopng:  inkscape %svg --export-type=png --export-filename=%png
+svgtopdf:  inkscape %svg --export-type=pdf --export-filename=%pdf
 
-# Programming — compile/build/run common languages
-c: gcc -Wall %c -o %out.exe
-cc: gcc -Wall %c -o %out.exe
-cpp: g++ -Wall %cpp -o %out.exe
-cxx: g++ -Wall %cxx -o %out.exe
-rs: rustc -O %rs -o %out.exe
-go: go build -o %out.exe %go
-hs: ghc -O2 %hs -o %out.exe
-ml: ocamlopt str.cmxa unix.cmxa %ml -o %out.exe
-nim: nim c -d:release -o:%out.exe %nim
-swift: swiftc %swift -o %out.exe
-kt: kotlinc %kt -include-runtime -d %out.jar
-java: javac %java
-scala: scalac %scala
-ts: deno bundle %ts %js
-js: node %js
-py: py %py
-ps1: powershell -ExecutionPolicy Bypass -File %ps1
-bat: cmd /c %bat
-rb: ruby %rb
-pl: perl %pl
-php: php %php
-lua: lua %lua
+# ── Plots ───────────────────────────────────────────────────────────────────
+gnuplot:   gnuplot -e "set terminal pngcairo size 1600,900; set output '%png';" %gnuplot
+plt:       gnuplot -e "set terminal pngcairo size 1600,900; set output '%png';" %plt
 
-# Data conversion
-jsonpretty: jq . %json > %txt
-yamljson: yq -o=json %yaml > %json
+# ── Programming — compile/build/run common languages ────────────────────────
+c:         gcc -Wall %c -o %out.exe
+cc:        gcc -Wall %c -o %out.exe
+cpp:       g++ -Wall %cpp -o %out.exe
+cxx:       g++ -Wall %cxx -o %out.exe
+rs:        rustc -O %rs -o %out.exe
+rsrun:     rustc %rs -o %out.exe && %out.exe
+cargo:     cargo build
+cargotest: cargo test
+go:        go build -o %out.exe %go
+gotest:    go test ./...
+hs:        ghc -O2 %hs -o %out.exe
+ml:        ocamlopt str.cmxa unix.cmxa %ml -o %out.exe
+nim:       nim c -d:release -o:%out.exe %nim
+swift:     swiftc %swift -o %out.exe
+kt:        kotlinc %kt -include-runtime -d %out.jar
+java:      javac %java
+jar:       jar cfe %jar Main %class
+scala:     scalac %scala
+ts:        deno bundle %ts %js
+tsc:       tsc %ts --outFile %js
+esbuild:   esbuild %js --bundle --minify --outfile=%min.js
+rollup:    rollup %js -c --file %min.js
+uglify:    terser %js -o %min.js -mc
+js:        node %js
+py:        py %py
+pytest:    pytest -q
+ps1:       powershell -ExecutionPolicy Bypass -File %ps1
+bat:       cmd /c %bat
+rb:        ruby %rb
+pl:        perl %pl
+php:       php %php
+lua:       lua %lua
 
-# Images and media
-pngjpg: magick %png %jpg
-jpgwebp: cwebp -q 90 %jpg -o %webp
-webpjpg: dwebp %webp -o %jpg
-wavmp3: ffmpeg -y -i %wav %mp3
-mp3wav: ffmpeg -y -i %mp3 %wav
-movmp4: ffmpeg -y -i %mov -vcodec h264 -acodec aac %mp4
-mp4gif: ffmpeg -y -i %mp4 -vf fps=12,scale=640:-2:flags=lanczos %gif
-
-# Archives
-zip: powershell -NoProfile -Command Compress-Archive -Path % -DestinationPath %zip -Force
-tar: tar.exe -cvf %tar %
-tgz: tar.exe -czvf %tgz %
-
-# Misc utilities
+# ── Linters / Formatters ────────────────────────────────────────────────────
+prettier:  prettier -w %
+eslint:    eslint --fix %js
+ruff:      ruff check --fix %py
+black:     black %py
+flake8:    flake8 %py
+mypy:      mypy %py
 shellcheck: shellcheck %sh > %txt
+
+# ── Data conversion ─────────────────────────────────────────────────────────
+jsonpretty: jq . %json > %txt
+jsonmin:   jq -c . %json > %min.json
+yamljson:  yq -o=json %yaml > %json
+ymljson:   yq -o=json %yml > %json
+jsontoyaml: yq -P %json > %yaml
+tomljson:  yq -p=toml -o=json %toml > %json
+jsontoml:  yq -p=json -o=toml %json > %toml
+
+# ── Images and media ────────────────────────────────────────────────────────
+pngjpg:    magick %png %jpg
+jpgpng:    magick %jpg %png
+heicjpg:   magick %heic %jpg
+jpgwebp:   cwebp -q 90 %jpg -o %webp
+webpjpg:   dwebp %webp -o %jpg
+wavmp3:    ffmpeg -y -i %wav %mp3
+mp3wav:    ffmpeg -y -i %mp3 %wav
+movmp4:    ffmpeg -y -i %mov -vcodec h264 -acodec aac %mp4
+mp4gif:    ffmpeg -y -i %mp4 -vf fps=12,scale=640:-2:flags=lanczos %gif
+gifmp4:    ffmpeg -y -i %gif -movflags faststart -pix_fmt yuv420p %mp4
+
+# ── Archives ────────────────────────────────────────────────────────────────
+zip:       powershell -NoProfile -Command Compress-Archive -Path % -DestinationPath %zip -Force
+tar:       tar.exe -cvf %tar %
+tgz:       tar.exe -czvf %tgz %
+7z:        7z a %7z %
+
+# ── Containers / Cloud ─────────────────────────────────────────────────────-
+dockerfile: docker build -f %dockerfile .
+compose:   docker compose up -d
+tfplan:    terraform.exe plan
+tffmt:     terraform.exe fmt -recursive
 
