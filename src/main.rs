@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::collections::HashMap;
 
 #[cfg(target_os = "macos")]
 const BUNDLED_DEFAULTS: &str = include_str!("../defaults/macos.defaults");
@@ -109,8 +110,9 @@ fn read_defaults(ext: &str) -> Option<String> {
 
 /// Build command runner: expands placeholders then executes via the platform shell.
 /// Mirrors `os.execute` behavior by invoking sh -c / cmd /C.
-fn run_command(build_tpl: &str, base: &str, workdir: &Path) -> bool {
+fn run_command(build_tpl: &str, base: &str, workdir: &Path, filename: &Path, ty: Option<&str>) -> bool {
     let cmdline = expand_template(build_tpl, base);
+    let cmdline = expand_vars(cmdline, filename, workdir, ty);
     println!("Running: {}", cmdline);
 
     let status = if cfg!(windows) {
@@ -142,6 +144,106 @@ fn run_command(build_tpl: &str, base: &str, workdir: &Path) -> bool {
     }
 }
 
+/// Additional variable expansion on top of % placeholders for project-aware rules.
+/// Supported variables:
+///   {{file}}      -> quoted file name (no path)
+///   {{file_stem}} -> quoted file stem
+///   {{dir}}       -> quoted directory path of the file
+///   {{pm}}        -> chosen package manager (npm|yarn|pnpm|bun)
+///   {{pm_start}}  -> pm-specific start command
+///   {{pm_test}}   -> pm-specific test command
+///   {{pm_install}}-> pm-specific install command
+///   {{type}}      -> normalized type (e.g., "build", "down"), empty if none
+fn expand_vars(mut s: String, filename: &Path, workdir: &Path, ty: Option<&str>) -> String {
+    let file_name = filename.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let file_stem = filename.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let dir_disp = workdir.display().to_string();
+
+    // Resolve package manager from workdir
+    let pm = pick_package_manager(workdir);
+    let pm_str = match pm { PackageManager::Npm => "npm", PackageManager::Yarn => "yarn", PackageManager::Pnpm => "pnpm", PackageManager::Bun => "bun" };
+    let pm_start = match pm { PackageManager::Npm => "npm start", PackageManager::Yarn => "yarn start", PackageManager::Pnpm => "pnpm start", PackageManager::Bun => "bun run start" };
+    let pm_test  = match pm { PackageManager::Npm => "npm test",  PackageManager::Yarn => "yarn test",  PackageManager::Pnpm => "pnpm test",  PackageManager::Bun => "bun run test" };
+    let pm_install = match pm { PackageManager::Npm => "npm install",  PackageManager::Yarn => "yarn install",  PackageManager::Pnpm => "pnpm install",  PackageManager::Bun => "bun install" };
+
+    let ty_norm = ty.map(normalize_type).unwrap_or_default();
+
+    let replacements = [
+        ("{{file}}", format!("\"{}\"", file_name)),
+        ("{{file_stem}}", format!("\"{}\"", file_stem)),
+        ("{{dir}}", format!("\"{}\"", dir_disp)),
+        ("{{pm}}", pm_str.to_string()),
+        ("{{pm_start}}", pm_start.to_string()),
+        ("{{pm_test}}", pm_test.to_string()),
+        ("{{pm_install}}", pm_install.to_string()),
+        ("{{type}}", ty_norm),
+    ];
+    for (k, v) in replacements { s = s.replace(k, &v); }
+    s
+}
+
+#[derive(Debug, Default)]
+struct DefaultsCfg {
+    ext_map: HashMap<String, String>,
+    file_rules: Vec<FileRule>,
+}
+
+#[derive(Debug, Clone)]
+struct FileRule { pattern: String, ty: Option<String>, cmd: String }
+
+fn parse_defaults_str(s: &str) -> DefaultsCfg {
+    let mut cfg = DefaultsCfg::default();
+    let re_ext = Regex::new(r#"^([A-Za-z0-9]+)\s*:\s*(.*)$"#).unwrap();
+    let re_file = Regex::new(r#"^file:([^\s:]+)(?:\s+-([A-Za-z0-9_-]+))?\s*:\s*(.*)$"#).unwrap();
+    for line in s.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') { continue; }
+        if let Some(c) = re_file.captures(t) {
+            let pat = c.get(1).unwrap().as_str().to_string();
+            let ty = c.get(2).map(|m| normalize_type(m.as_str()));
+            let cmd = c.get(3).unwrap().as_str().to_string();
+            cfg.file_rules.push(FileRule { pattern: pat, ty, cmd });
+            continue;
+        }
+        if let Some(c) = re_ext.captures(t) {
+            let lext = c.get(1).unwrap().as_str().to_ascii_lowercase();
+            let lbuild = c.get(2).unwrap().as_str().to_string();
+            cfg.ext_map.insert(lext, lbuild);
+        }
+    }
+    cfg
+}
+
+fn load_defaults_cfg() -> Option<DefaultsCfg> {
+    let p = config_path()?;
+    if !p.exists() {
+        if let Err(e) = ensure_bootstrap_defaults(&p) {
+            eprintln!("could not create default settings at {}: {}", p.display(), e);
+            return None;
+        }
+    }
+    let data = std::fs::read_to_string(&p).ok()?;
+    Some(parse_defaults_str(&data))
+}
+
+fn match_file_rule(cfg: &DefaultsCfg, name: &str, ty: Option<&str>) -> Option<String> {
+    let lname = name.to_ascii_lowercase();
+    let tnorm = ty.map(normalize_type);
+    for r in &cfg.file_rules {
+        let mut pat = r.pattern.to_ascii_lowercase();
+        let star = pat.ends_with('*');
+        if star { pat.pop(); }
+        let ok = if star { lname.starts_with(&pat) } else { lname == pat };
+        if !ok { continue; }
+        match (&r.ty, &tnorm) {
+            (None, _) => return Some(r.cmd.clone()),
+            (Some(rt), Some(t)) if rt == t => return Some(r.cmd.clone()),
+            _ => continue,
+        }
+    }
+    None
+}
+
 /// Returns (base_with_trailing_dot_if_ext, ext_without_dot)
 fn base_and_ext(filename: &Path) -> (String, String) {
     let stem = filename
@@ -162,7 +264,71 @@ fn base_and_ext(filename: &Path) -> (String, String) {
     (base, ext)
 }
 
-fn project_command_for_file(path: &Path) -> Option<String> {
+fn normalize_type(t: &str) -> String {
+    t.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+#[cfg(test)]
+fn compose_cmd(ty: Option<&str>) -> String {
+    let t = ty.map(normalize_type);
+    match t.as_deref() {
+        Some("composedown") | Some("down") | Some("dcdown") => "docker compose down".into(),
+        Some("composebuild") | Some("build") | Some("dcbuild") => "docker compose build".into(),
+        Some("composepull") | Some("pull") | Some("dcpull") => "docker compose pull".into(),
+        Some("composelogs") | Some("logs") | Some("dclogs") => "docker compose logs -f".into(),
+        Some("composeps") | Some("ps") | Some("dcps") => "docker compose ps".into(),
+        Some("composestop") | Some("stop") | Some("dcstop") => "docker compose stop".into(),
+        Some("composestart") | Some("start") | Some("dcstart") => "docker compose start".into(),
+        Some("composerestart") | Some("restart") | Some("dcrestart") => "docker compose restart".into(),
+        Some("composerecreate") | Some("recreate") => "docker compose up -d --force-recreate".into(),
+        Some("composeprune") | Some("prune") => "docker compose down --volumes --remove-orphans".into(),
+        _ => "docker compose up -d".into(),
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum PackageManager { Npm, Yarn, Pnpm, Bun }
+
+fn pick_package_manager(dir: &Path) -> PackageManager {
+    // Heuristics based on lockfiles
+    let has = |name: &str| dir.join(name).exists();
+    if has("pnpm-lock.yaml") { return PackageManager::Pnpm; }
+    if has("yarn.lock") { return PackageManager::Yarn; }
+    if has("bun.lockb") { return PackageManager::Bun; }
+    // package-lock.json implies npm
+    PackageManager::Npm
+}
+
+#[cfg(test)]
+fn pm_script(pm: PackageManager, script: &str) -> String {
+    let s = script.to_ascii_lowercase();
+    match pm {
+        PackageManager::Npm => match s.as_str() {
+            "install" => "npm install".into(),
+            "start" => "npm start".into(),
+            "test" => "npm test".into(),
+            _ => format!("npm run {}", s),
+        },
+        PackageManager::Yarn => match s.as_str() {
+            "install" => "yarn install".into(),
+            _ => format!("yarn {}", s),
+        },
+        PackageManager::Pnpm => match s.as_str() {
+            "install" => "pnpm install".into(),
+            _ => format!("pnpm {}", s),
+        },
+        PackageManager::Bun => match s.as_str() {
+            "install" => "bun install".into(),
+            _ => format!("bun run {}", s),
+        },
+    }
+}
+
+#[cfg(test)]
+fn project_command_for_file(type_expected: Option<&str>, path: &Path) -> Option<String> {
     let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
     if name == "book.toml" {
         return Some("mdbook build".to_string());
@@ -174,9 +340,29 @@ fn project_command_for_file(path: &Path) -> Option<String> {
         return Some("sphinx-build -b html . _build/html".to_string());
     }
     if name.starts_with("doxyfile") {
-        // Use the actual file name in case it's like Doxyfile.dev
         let fname = path.file_name()?.to_string_lossy().to_string();
         return Some(format!("doxygen {}", fname));
+    }
+    if name == "docker-compose.yml" || name == "docker-compose.yaml" || name == "compose.yml" || name == "compose.yaml" {
+        return Some(compose_cmd(type_expected));
+    }
+    if name == "package.json" {
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let pm = pick_package_manager(dir);
+        // Default to build when no type is specified
+        let tnorm = type_expected.map(normalize_type);
+        let script = match tnorm.as_deref() {
+            Some("start") | Some("npmstart") => "start",
+            Some("test") | Some("npmtest") => "test",
+            Some("build") | Some("npmbuild") => "build",
+            Some("lint") | Some("npmlint") => "lint",
+            Some("format") | Some("npmformat") | Some("fmt") => "format",
+            Some("dev") | Some("npmdev") => "dev",
+            Some("clean") | Some("npmclean") => "clean",
+            Some("install") | Some("npminstall") => "install",
+            _ => "build",
+        };
+        return Some(pm_script(pm, script));
     }
     None
 }
@@ -206,19 +392,21 @@ fn build_file(type_expected: Option<&str>, filename: &Path) -> bool {
                 Some(want) => !ty.is_empty() && ty == want,
             };
             if ok_type && !build_tpl.is_empty() {
-                return run_command(&build_tpl, &base, &workdir);
+                return run_command(&build_tpl, &base, &workdir, filename, type_expected);
             }
         }
     }
 
-    // Project-aware fallbacks for common tool configs
-    if let Some(pc) = project_command_for_file(filename) {
-        return run_command(&pc, &base, &workdir);
+    // Project-aware fallbacks from config defaults
+    if let Some(cfg) = load_defaults_cfg() {
+        if let Some(tpl) = match_file_rule(&cfg, filename.file_name().and_then(|s| s.to_str()).unwrap_or(""), type_expected) {
+            return run_command(&tpl, &base, &workdir, filename, type_expected);
+        }
     }
 
     // Try defaults if nothing was found inline or via project detection
     if let Some(default_tpl) = read_defaults(&ext) {
-        return run_command(&default_tpl, &base, &workdir);
+        return run_command(&default_tpl, &base, &workdir, filename, type_expected);
     }
 
     false
@@ -433,7 +621,7 @@ mod tests {
         let marker = d.join("marker.txt");
         assert!(!marker.exists());
         // Command writes to a file in the working directory; ensure it lands in `d`.
-        let ok = run_command("echo hi > marker.txt", "base.", &d);
+        let ok = run_command("echo hi > marker.txt", "base.", &d, &d.join("dummy.txt"), None);
         assert!(ok);
         assert!(marker.exists());
     }
@@ -520,28 +708,57 @@ mod tests {
     #[test]
     fn test_project_command_for_file_detection() {
         assert_eq!(
-            project_command_for_file(Path::new("book.toml")).as_deref(),
+            project_command_for_file(None, Path::new("book.toml")).as_deref(),
             Some("mdbook build")
         );
         assert_eq!(
-            project_command_for_file(Path::new("mkdocs.yml")).as_deref(),
+            project_command_for_file(None, Path::new("mkdocs.yml")).as_deref(),
             Some("mkdocs build")
         );
         assert_eq!(
-            project_command_for_file(Path::new("mkdocs.yaml")).as_deref(),
+            project_command_for_file(None, Path::new("mkdocs.yaml")).as_deref(),
             Some("mkdocs build")
         );
         assert_eq!(
-            project_command_for_file(Path::new("conf.py")).as_deref(),
+            project_command_for_file(None, Path::new("conf.py")).as_deref(),
             Some("sphinx-build -b html . _build/html")
         );
         assert_eq!(
-            project_command_for_file(Path::new("Doxyfile")).as_deref(),
+            project_command_for_file(None, Path::new("Doxyfile")).as_deref(),
             Some("doxygen Doxyfile")
         );
         assert_eq!(
-            project_command_for_file(Path::new("Doxyfile.dev")).as_deref(),
+            project_command_for_file(None, Path::new("Doxyfile.dev")).as_deref(),
             Some("doxygen Doxyfile.dev")
+        );
+    }
+
+    #[test]
+    fn test_compose_and_package_detection_with_types() {
+        // docker-compose mapping
+        assert_eq!(
+            project_command_for_file(Some("down"), Path::new("docker-compose.yml")).as_deref(),
+            Some("docker compose down")
+        );
+        assert_eq!(
+            project_command_for_file(Some("build"), Path::new("compose.yaml")).as_deref(),
+            Some("docker compose build")
+        );
+
+        // package.json mapping with PM detection
+        let d = tmp_dir("pm_detect");
+        write_file(&d.join("package.json"), "{\n}\n");
+        write_file(&d.join("yarn.lock"), "# lock\n");
+        let file = d.join("package.json");
+        assert_eq!(
+            project_command_for_file(Some("build"), &file).as_deref(),
+            Some("yarn build")
+        );
+        // prefer pnpm if lock exists
+        write_file(&d.join("pnpm-lock.yaml"), "lockfileVersion: 9\n");
+        assert_eq!(
+            project_command_for_file(Some("start"), &file).as_deref(),
+            Some("pnpm start")
         );
     }
 }

@@ -127,3 +127,59 @@ tffmt:     terraform.exe fmt -recursive
 #   conf.py     -> sphinx-build ...    (handled automatically by ruild)
 #   Doxyfile    -> doxygen Doxyfile    (handled automatically by ruild)
 proto:     protoc -I . --python_out=. %proto
+
+# ── Project-aware rules (match by filename) ─────────────────────────────────
+file:book.toml: mdbook build
+file:mkdocs.yml: mkdocs build
+file:mkdocs.yaml: mkdocs build
+file:conf.py: sphinx-build -b html . _build/html
+file:Doxyfile*: doxygen {{file}}
+
+# Docker Compose helpers
+file:docker-compose.yml: docker compose up -d
+file:docker-compose.yml -down: docker compose down
+file:docker-compose.yml -build: docker compose build
+file:docker-compose.yml -pull: docker compose pull
+file:docker-compose.yml -logs: docker compose logs -f
+file:docker-compose.yml -ps: docker compose ps
+file:docker-compose.yml -stop: docker compose stop
+file:docker-compose.yml -start: docker compose start
+file:docker-compose.yml -restart: docker compose restart
+file:docker-compose.yml -recreate: docker compose up -d --force-recreate
+file:docker-compose.yml -prune: docker compose down --volumes --remove-orphans
+
+file:compose.yml: docker compose up -d
+file:compose.yml -down: docker compose down
+file:compose.yml -build: docker compose build
+file:compose.yml -pull: docker compose pull
+file:compose.yml -logs: docker compose logs -f
+file:compose.yml -ps: docker compose ps
+file:compose.yml -stop: docker compose stop
+file:compose.yml -start: docker compose start
+file:compose.yml -restart: docker compose restart
+file:compose.yml -recreate: docker compose up -d --force-recreate
+file:compose.yml -prune: docker compose down --volumes --remove-orphans
+
+file:compose.yaml: docker compose up -d
+file:compose.yaml -down: docker compose down
+file:compose.yaml -build: docker compose build
+file:compose.yaml -pull: docker compose pull
+file:compose.yaml -logs: docker compose logs -f
+file:compose.yaml -ps: docker compose ps
+file:compose.yaml -stop: docker compose stop
+file:compose.yaml -start: docker compose start
+file:compose.yaml -restart: docker compose restart
+file:compose.yaml -recreate: docker compose up -d --force-recreate
+file:compose.yaml -prune: docker compose down --volumes --remove-orphans
+
+# Node package scripts
+file:package.json: {{pm}} run build
+file:package.json -build: {{pm}} run build
+file:package.json -start: {{pm_start}}
+file:package.json -test: {{pm_test}}
+file:package.json -install: {{pm_install}}
+file:package.json -lint: {{pm}} run lint
+file:package.json -format: {{pm}} run format
+file:package.json -fmt: {{pm}} run format
+file:package.json -dev: {{pm}} run dev
+file:package.json -clean: {{pm}} run clean
