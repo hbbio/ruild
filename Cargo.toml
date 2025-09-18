@@ -1,7 +1,19 @@
 [package]
-name = "ruild"
-version = "0.1.0"
-edition = "2024"
+name        = "mk1"
+version     = "0.1.0"
+edition     = "2021"
+description = "Build single files from inside the file: put @build in a comment, then run `build <file>`. Directory-aware, with smart defaults."
+license     = "MIT"
+repository  = "https://github.com/hbbio/ruild"
+readme      = "README.md"
+keywords    = ["build", "make", "single-file", "inline", "annotation", "ruild"]
+categories  = ["command-line-utilities", "development-tools::build-utils"]
+default-run = "build"
+
+# Produce a `build` binary.
+[[bin]]
+name = "build"
+path = "src/main.rs"
 
 [dependencies]
 regex = "1"

@@ -1,86 +1,170 @@
-## ruild (build-rust)
+# mk1 — the `build` command
 
-`ruild` is like `Makefile` for single files. This is a Rust port of [build](https://github.com/hbbio/build).
+`Makefile` for single files.
 
-Instead of having to write a separate `Makefile`, `ruild` reads the ruild instructions from comments in the file itself. Therefore, you can distribute a file (or gist) by itself without a ruild script or `Makefile`.
+**Build from inside your files.**  
+Put `@build ...` in a comment, then run:
 
-## usage
+```bash
+build <file> [<file> ...]
+````
 
-Run `ruild` against one or more files. It reads `@build` directives from comments inside each file and executes the command from the file's directory (so relative paths work regardless of your current working directory).
+`build` reads the `@build` directive inside the file and runs the command **from that file’s directory**. So `build path/to/doc.md` builds in `path/to`, not in your shell’s cwd — relative paths and outputs land where they belong. If a file has no `@build`, `build` falls back to per‑extension defaults. 
 
-```sh
-ruild [-type] <file> [<file> ...]
-ruild --config_file
-ruild --dump_defaults
+## Why this makes life easier
+
+* **No Makefile drift.** The recipe lives next to the content (in a comment), so it can’t get out of sync. 
+* **Directory‑aware by design.** Run `build path/to/file.ext` from anywhere; the command executes relative to `path/to`. 
+* **Single‑file distribution.** Gists, pastes, emails — ship a lone file with `@build` and the recipient just runs `build file`. 
+* **Works even without annotations.** If there’s no `@build`, mk1 loads a `build.defaults` recipe for that extension (and bootstraps a defaults file on first run). 
+
+## Install
+
+```bash
+cargo install mk1
 ```
 
-Notes:
+From source:
 
-- `%<token>` expands to `"<base><token>"`, where `<base>` is the file stem plus a trailing dot if the file had an extension. For example, for `doc.md`, `%pdf` -> `"doc.pdf"`, `%md` -> `"doc.md"`.
-- A lone `%` expands to `<base>` without quotes. For `doc.md`, `%` -> `doc.`.
-- If a file has no inline directive, `ruild` tries `build.defaults` (see below).
-- Relative paths in commands are resolved from the file's directory, not the shell's cwd.
+```bash
+git clone https://github.com/hbbio/ruild.git
+cd ruild
+cargo build --release
+install target/release/build /usr/local/bin/
+```
 
-Options:
+## Quick start
 
-- `--config_file` prints the location of the `build.defaults` file and exits. If the file
-  does not exist yet, it is created (bootstrapped) in the appropriate OS-specific location.
-- `--dump_defaults` prints the built-in defaults for your platform and exits.
+### 1) Markdown → PDF (inline recipe)
 
-## example
-
-Add this line to a markdown file:
+Add a comment to your `.md` file:
 
 ```markdown
 <!-- @build pandoc -N --toc -o %pdf %md -->
 ```
 
-or this line to a [mscgen](http://www.mcternan.me.uk/mscgen/) file:
+Now, from anywhere:
 
+```bash
+build docs/guide.md
+# runs in ./docs, produces ./docs/guide.pdf
 ```
+
+The `%` placeholders expand from the file name:
+
+* `%md` → `guide.md`
+* `%pdf` → `guide.pdf`
+* A lone `%` → the base (`guide.`). 
+
+### 2) No inline directive? Defaults just work
+
+Common formats build out‑of‑the‑box — try:
+
+```bash
+build src/hello.c        # compiles with a default C recipe
+build paper.tex          # runs LaTeX
+build diagram.msc        # runs mscgen
+build logo.svg           # renders a PNG preview on macOS
+```
+
+You can inspect the built‑ins with:
+
+```bash
+build --dump_defaults
+```
+
+Typical mappings include: Markdown/ReST → pandoc, TeX → pdflatex, C/C++ → gcc, mscgen → PNG, SVG → preview render (macOS). 
+For the full macOS bootstrap set, see `defaults/macos.defaults`. 
+
+### 3) Two modes in one file (`@build-{type}`)
+
+Put more than one recipe in the same file and pick at the CLI:
+
+```markdown
+<!-- @build-preview pandoc -s -o %html %md -->
+<!-- @build-pdf     pandoc -N --toc -o %pdf %md -->
+```
+
+Run either:
+
+```bash
+build -preview notes.md
+build -pdf     notes.md
+```
+
+Types are declared as `@build-{type}` in the file and selected as `build -{type}`. 
+
+### 4) Batch builds & globs
+
+```bash
+build *.md
+build content/**/*.md
+```
+
+mk1 accepts multiple files and wildcards; each one is evaluated in its own directory. 
+
+### 5) Shipping a gist
+
+A gist can carry its own recipe:
+
+```text
 # @build mscgen -T png -o images/%png %msc
 ```
 
-And then run `ruild onefile.md` or `ruild *.md` to ruild multiple files at once.
-You can run these from any directory; `ruild` resolves paths relative to the file location.
+Anyone who saves that file locally can just run `build diagram.msc`. No extra scripts to fetch. 
 
-## syntax
+## How it reads & expands commands
 
-A comment in the file should contain `@build command` or `@build-{type} command`.
-Placeholders are expanded as described in the usage notes.
+* **Inline form:** any comment containing `@build <command>` or `@build-{type} <command>`. 
+* **Placeholders:** `%<token>` becomes `"base<token>"` where base is the stem plus a trailing dot if the file had an extension (e.g., `doc.md` → base `doc.`, `%pdf` → `doc.pdf`). A bare `%` becomes `base` without quotes. 
+* **Directory resolution:** commands run from the file’s directory, not your shell’s cwd. 
+* **First hit wins:** mk1 stops after it finds and runs a matching recipe (inline or default). 
 
-If the file does not contain an inline command, `ruild` attempts to load a default command for the file extension from `build.defaults` (see next section). `ruild` succeeds and exits after it finds and runs a command.
+## Defaults & config
 
-## ruild types
+On first use, mk1 looks for a per‑user `build.defaults`; if missing, it creates one in an OS‑appropriate location and seeds it with starter recipes you can edit. Locations:
 
-You can define multiple ruild types with the following syntax (within files):
-```
-@build-{type} command
-```
+* Unix/macOS: `${XDG_CONFIG_HOME}/build.defaults` or `~/.config/build.defaults`
+* Windows: `%APPDATA%\build.defaults` (fallback to `~/.config/build.defaults`) 
 
-Then, invoke ruild with
-```sh
-ruild -{type} [files]
-```
+Discover paths / defaults:
 
-## defaults
-
-`ruild` looks for a `build.defaults` file and bootstraps it on first use if it does not exist.
-
-Config file location:
-
-- Unix/macOS: `${XDG_CONFIG_HOME}/build.defaults` or `~/.config/build.defaults`
-- Windows: `%APPDATA%\build.defaults` (falls back to `~/.config/build.defaults`)
-
-Bundled templates are OS-specific and reasonably feature-rich. To see them:
-
-```sh
-ruild --dump_defaults
+```bash
+build --config_file     # prints the defaults file path (and bootstraps if absent)
+build --dump_defaults   # prints the built-ins for your platform
 ```
 
-On first run, if the file is missing, `ruild` creates it from the bundled template for your platform. You can freely edit that file.
+For a platform‑specific snapshot of the macOS starter set, check the repository file `defaults/macos.defaults`. 
 
-### config syntax
+## Examples you can copy
+
+**C (defaults only):**
+
+```c
+/* hello.c — no inline build needed */
+#include <stdio.h>
+int main(){ puts("hi"); }
+```
+
+```bash
+build hello.c   # compiles per the default C recipe
+```
+
+**LaTeX (inline):**
+
+```tex
+% @build pdflatex %tex
+\documentclass{article}
+\begin{document}
+Hello
+\end{document}
+```
+
+```bash
+build paper.tex
+```
+
+### Configuration syntax
 
 Two kinds of rules are supported:
 
@@ -146,16 +230,10 @@ Expansion order: `%` placeholders are expanded first, then `{{variables}}`.
 
 Tip: avoid using a bare `%` token in your recipes (it expands to `<base>`, which can end in a dot like `doc.`); prefer explicit `%<token>` or quoted arguments.
 
-## installation
+## Contributing
 
-`ruild` is written in Rust. To build from source:
+PRs for more smart defaults and example snippets are welcome.
 
-```sh
-cargo build --release
-install target/release/ruild SOMEWHERE_IN_PATH
-```
+## License
 
-## author
-
-`ruild` is written by Henri Binsztok and licensed under the MIT license.
-
+mk1 is written by Henri Binsztok and licensed under the MIT license.
