@@ -28,8 +28,11 @@ fn is_comment(line: &str) -> Option<String> {
     if let Some(c) = Regex::new(r#"^//\s*(.*)$"#).unwrap().captures(s) {
         return Some(c.get(1).unwrap().as_str().to_string());
     }
-    // <!-- comment -->
-    if let Some(c) = Regex::new(r#"^<!--\s*(.*?)\s*-->$"#).unwrap().captures(s) {
+    // <!-- comment -->, or start of multiline comment
+    if let Some(c) = Regex::new(r#"^<!--\s*(.*?)\s*(?:-->)?\s*$"#)
+        .unwrap()
+        .captures(s)
+    {
         return Some(c.get(1).unwrap().as_str().to_string());
     }
     // (* comment *)
@@ -367,6 +370,40 @@ fn project_command_for_file(type_expected: Option<&str>, path: &Path) -> Option<
     None
 }
 
+fn append_command_segment(cmd: &mut String, fragment: &str) {
+    let part = fragment.trim();
+    if part.is_empty() {
+        return;
+    }
+    if !cmd.is_empty() && !cmd.ends_with(' ') {
+        cmd.push(' ');
+    }
+    cmd.push_str(part);
+}
+
+fn collect_html_command<I>(mut cmd: String, lines: &mut I) -> String
+where
+    I: Iterator<Item = std::io::Result<String>>,
+{
+    while let Some(line_res) = lines.next() {
+        let line = match line_res {
+            Ok(line) => line,
+            Err(_) => break,
+        };
+        let trimmed = line.trim();
+        let (fragment, done) = if let Some(idx) = trimmed.find("-->") {
+            (&trimmed[..idx], true)
+        } else {
+            (trimmed, false)
+        };
+        append_command_segment(&mut cmd, fragment);
+        if done {
+            break;
+        }
+    }
+    cmd
+}
+
 fn build_file(type_expected: Option<&str>, filename: &Path) -> bool {
     let fh = match File::open(filename) {
         Ok(f) => f,
@@ -384,9 +421,22 @@ fn build_file(type_expected: Option<&str>, filename: &Path) -> bool {
         Err(_) => filename.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")),
     };
 
+    let mut lines = BufReader::new(fh).lines();
+
     // Scan the whole file (the Lua had a TODO to limit to 100 lines; we keep the original behavior)
-    for line in BufReader::new(fh).lines().flatten() {
-        if let Some((ty, build_tpl)) = detect(&line) {
+    while let Some(line_res) = lines.next() {
+        let line = match line_res {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        if let Some((ty, mut build_tpl)) = detect(&line) {
+            let is_multiline_html = {
+                let trimmed = line.trim_start();
+                trimmed.starts_with("<!--") && !trimmed.contains("-->")
+            };
+            if is_multiline_html {
+                build_tpl = collect_html_command(build_tpl, &mut lines);
+            }
             let ok_type = match type_expected {
                 None => true,
                 Some(want) => !ty.is_empty() && ty == want,
@@ -576,6 +626,10 @@ mod tests {
             is_comment("<!--  spaced content  -->").as_deref(),
             Some("spaced content")
         );
+        assert_eq!(
+            is_comment("<!-- just the start of a comment").as_deref(),
+            Some("just the start of a comment")
+        );
         assert_eq!(is_comment("(* test *)").as_deref(), Some("test"));
         assert!(is_comment("no comment here").is_none());
     }
@@ -589,6 +643,10 @@ mod tests {
         assert_eq!(
             detect("// @build-tex xelatex %md"),
             Some(("tex".to_string(), "xelatex %md".to_string()))
+        );
+        assert_eq!(
+            detect("<!-- @build make-doc"),
+            Some(("".to_string(), "make-doc".to_string()))
         );
         assert!(detect("# not a build line").is_none());
     }
@@ -634,6 +692,19 @@ mod tests {
         let ok = build_file(None, &file);
         assert!(ok);
         assert!(d.join("inside").exists());
+    }
+
+    #[test]
+    fn test_build_file_multiline_html_command() {
+        let d = tmp_dir("multiline");
+        let file = d.join("doc.md");
+        write_file(
+            &file,
+            "<!-- @build echo multi\nline > multiline.txt -->\ncontent\n",
+        );
+        let ok = build_file(None, &file);
+        assert!(ok);
+        assert!(d.join("multiline.txt").exists());
     }
 
     #[test]
