@@ -8,11 +8,11 @@ repository  = "https://github.com/hbbio/ruild"
 readme      = "README.md"
 keywords    = ["build", "make", "single-file", "inline", "annotation", "ruild"]
 categories  = ["command-line-utilities", "development-tools::build-utils"]
-default-run = "build"
+default-run = "ruild"
 
-# Produce a `build` binary.
+# Produce a `ruild` binary.
 [[bin]]
-name = "build"
+name = "ruild"
 path = "src/main.rs"
 
 [dependencies]
