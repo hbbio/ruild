@@ -599,8 +599,10 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
 
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static ENV_GUARD: Mutex<()> = Mutex::new(());
 
     fn tmp_dir(prefix: &str) -> PathBuf {
         let mut p = std::env::temp_dir();
@@ -709,13 +711,19 @@ mod tests {
 
     #[test]
     fn test_defaults_used_and_run_in_file_dir() {
+        let _guard = ENV_GUARD.lock().unwrap();
         let home = tmp_dir("home");
         let conf = home.join(".config").join("build.defaults");
         write_file(&conf, "md : echo default > from_defaults\n");
 
         // Set HOME so read_defaults finds our file
         let old_home = env::var_os("HOME");
-        unsafe { env::set_var("HOME", &home); }
+        let old_xdg = env::var_os("XDG_CONFIG_HOME");
+        let xdg = home.join(".config");
+        unsafe {
+            env::set_var("HOME", &home);
+            env::set_var("XDG_CONFIG_HOME", &xdg);
+        }
 
         let d = tmp_dir("defaults");
         let file = d.join("doc.md");
@@ -726,6 +734,7 @@ mod tests {
 
         // restore HOME
         if let Some(v) = old_home { unsafe { env::set_var("HOME", v); } } else { unsafe { env::remove_var("HOME"); } }
+        if let Some(v) = old_xdg { unsafe { env::set_var("XDG_CONFIG_HOME", v); } } else { unsafe { env::remove_var("XDG_CONFIG_HOME"); } }
     }
 
     #[test]
@@ -759,6 +768,7 @@ mod tests {
 
     #[test]
     fn test_bootstrap_defaults_created_and_used() {
+        let _guard = ENV_GUARD.lock().unwrap();
         // Point XDG_CONFIG_HOME to a temp dir so we don't touch the real config
         let cfgdir = tmp_dir("xdg");
         let cfgfile = cfgdir.join("build.defaults");
